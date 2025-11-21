@@ -2,17 +2,17 @@ import React, { useMemo } from 'react'
 
 // Deterministic PRNG (Mulberry32)
 function mulberry32(a) {
-  return function() {
-    var t = (a += 0x6D2B79F5)
+  return function () {
+    var t = (a += 0x6d2b79f5)
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
 
-function lerp(a, b, t) { return a + (b - a) * t }
-
-function hsl(h, s, l, a = 1) { return `hsla(${h} ${s}% ${l}% / ${a})` }
+function lerp(a, b, t) {
+  return a + (b - a) * t
+}
 
 const defaultPalette = {
   skyTealA: '#0f172a', // deep slate base
@@ -30,7 +30,6 @@ export default function FuturisticScene({ width = 1600, height = 900, seed = 1, 
 
   // Horizon + perspective
   const horizonY = height * 0.58
-  const vanishingX = width * 0.5
 
   // Generate building specs in layers for depth
   const layers = useMemo(() => {
@@ -44,10 +43,12 @@ export default function FuturisticScene({ width = 1600, height = 900, seed = 1, 
       const maxX = width - padding
       for (let b = 0; b < count && x < maxX; b++) {
         const w = lerp(60, 220, rand()) * lerp(0.35, 1, 1 - depth)
-        const h = lerp(120, 520, rand()) * lerp(0.4, 1, 1 - depth)
+        const h = lerp(140, 540, rand()) * lerp(0.4, 1, 1 - depth)
         const gap = lerp(16, 42, rand())
         const tilt = lerp(-6, 6, rand())
-        buildings.push({ x, w, h, tilt })
+        const stylePick = rand()
+        const style = stylePick < 0.18 ? 'curve' : stylePick < 0.42 ? 'cantilever' : 'straight'
+        buildings.push({ x, w, h, tilt, style })
         x += w + gap
       }
       layerSpecs.push({ depth, buildings })
@@ -142,8 +143,7 @@ export default function FuturisticScene({ width = 1600, height = 900, seed = 1, 
           const t = i / 11
           const y = lerp(horizonY + 6, height - 6, t)
           return (
-            <line key={i} x1={padding} x2={width - padding} y1={y} y2={y}
-              stroke="#38bdf833" strokeWidth={1} />
+            <line key={i} x1={padding} x2={width - padding} y1={y} y2={y} stroke="#38bdf833" strokeWidth={1} />
           )
         })}
       </g>
@@ -152,50 +152,85 @@ export default function FuturisticScene({ width = 1600, height = 900, seed = 1, 
       {layers.map(({ depth, buildings }, li) => (
         <g key={li} opacity={lerp(0.68, 1, 1 - depth)}>
           {buildings.map((b, bi) => {
-            const baseY = horizonY - lerp(40, 180, (1 - depth))
+            const baseY = horizonY - lerp(40, 180, 1 - depth)
             const x = b.x
             const w = b.w
             const h = b.h
             const tilt = b.tilt
-            // Simple skew via polygon
+            const style = b.style
+            const top = baseY - h
+            const bottom = baseY
+
+            if (style === 'curve') {
+              // Sweeping curved tower using a gentle quadratic profile
+              const cx = x + w * 0.5
+              const curveOut = (rand() * 0.6 + 0.2) * w // outward bulge
+              const leftBaseX = x
+              const rightBaseX = x + w
+              const leftTopX = cx - w * 0.35 - curveOut * 0.3
+              const rightTopX = cx + w * 0.35 + curveOut * 0.6
+
+              const pathD = `M ${leftBaseX},${bottom} C ${leftBaseX + curveOut * 0.2},${bottom - h * 0.6} ${leftTopX},${top + h * 0.25} ${leftTopX},${top}
+                              L ${rightTopX},${top}
+                              C ${rightBaseX - curveOut * 0.2},${bottom - h * 0.6} ${rightBaseX},${bottom} ${rightBaseX},${bottom}
+                              Z`
+
+              // panel lines following the curve
+              const verticals = Math.max(3, Math.floor(w / 28))
+              return (
+                <g key={bi}>
+                  <path d={pathD} fill="url(#glass)" stroke="#ffffff22" strokeWidth={1} />
+                  <path d={pathD} fill="url(#reflect)" />
+                  {Array.from({ length: verticals }).map((_, pi) => {
+                    const t = (pi + 1) / (verticals + 1)
+                    const px = leftBaseX + w * t
+                    return <line key={pi} x1={px} y1={top} x2={px} y2={bottom} stroke="url(#panel)" strokeWidth={1} />
+                  })}
+                  {/* subtle neon edge highlight */}
+                  <line x1={leftTopX} y1={top} x2={rightTopX} y2={top} stroke={bi % 2 === 0 ? palette.neonBlue : palette.neonOrange} strokeOpacity="0.65" strokeWidth={2} filter="url(#glow)" />
+                </g>
+              )
+            }
+
+            // Straight or cantilever base polygon (with tilt)
             const skew = Math.tan((tilt * Math.PI) / 180) * h
             const left = x
             const right = x + w
-            const top = baseY - h
-            const bottom = baseY
-            const pts = [
-              `${left + skew},${top}`,
-              `${right + skew},${top}`,
-              `${right},${bottom}`,
-              `${left},${bottom}`,
-            ].join(' ')
-
-            // window panel stripes
+            const pts = [`${left + skew},${top}`, `${right + skew},${top}`, `${right},${bottom}`, `${left},${bottom}`].join(' ')
             const panelCount = Math.max(3, Math.floor(w / 28))
 
             return (
               <g key={bi}>
                 <polygon points={pts} fill="url(#glass)" stroke="#ffffff22" strokeWidth={1} />
-                {/* reflective panel */}
                 <polygon points={pts} fill="url(#reflect)" />
-                {/* vertical panel lines */}
                 {Array.from({ length: panelCount }).map((_, pi) => {
                   const t = (pi + 1) / (panelCount + 1)
                   const xLineTop = lerp(left + skew, right + skew, t)
                   const xLineBottom = lerp(left, right, t)
-                  return (
-                    <line key={pi}
-                      x1={xLineTop} y1={top}
-                      x2={xLineBottom} y2={bottom}
-                      stroke="url(#panel)" strokeWidth={1}
-                    />
-                  )
+                  return <line key={pi} x1={xLineTop} y1={top} x2={xLineBottom} y2={bottom} stroke="url(#panel)" strokeWidth={1} />
                 })}
+
                 {/* neon accent strip */}
-                <line x1={left} y1={top + h * 0.22} x2={right} y2={top + h * 0.28}
-                  stroke={bi % 2 === 0 ? palette.neonBlue : palette.neonOrange}
-                  strokeOpacity="0.7" strokeWidth={2}
-                  filter="url(#glow)" />
+                <line x1={left} y1={top + h * 0.22} x2={right} y2={top + h * 0.28} stroke={bi % 2 === 0 ? palette.neonBlue : palette.neonOrange} strokeOpacity="0.7" strokeWidth={2} filter="url(#glow)" />
+
+                {/* cantilevered volume */}
+                {b.style === 'cantilever' && (
+                  (() => {
+                    const cantH = h * 0.18
+                    const cantW = w * (0.65 + rand() * 0.15)
+                    const overhang = w * (0.18 + rand() * 0.18)
+                    const cy = top + h * (0.28 + rand() * 0.18)
+                    const cx = left + w * 0.25 - overhang
+                    const cantPts = [`${cx},${cy}`, `${cx + cantW},${cy - cantH * 0.12}`, `${cx + cantW + overhang},${cy + cantH}`, `${cx + overhang},${cy + cantH * 1.12}`].join(' ')
+                    return (
+                      <g>
+                        <polygon points={cantPts} fill="url(#glass)" stroke="#ffffff22" strokeWidth={1} />
+                        <polygon points={cantPts} fill="url(#reflect)" />
+                        <line x1={cx} y1={cy} x2={cx + cantW + overhang} y2={cy} stroke={palette.neonBlue} strokeOpacity="0.55" strokeWidth={2} filter="url(#glow)" />
+                      </g>
+                    )
+                  })()
+                )}
               </g>
             )
           })}
@@ -205,9 +240,7 @@ export default function FuturisticScene({ width = 1600, height = 900, seed = 1, 
       {/* Neon horizon lines */}
       {neonLines.map((l, i) => (
         <g key={i} filter="url(#glow)">
-          <line x1={l.x1} y1={l.y} x2={l.x2} y2={l.y}
-            stroke={l.hue === 'blue' ? palette.neonBlue : palette.neonOrange}
-            strokeOpacity="0.8" strokeWidth={2} />
+          <line x1={l.x1} y1={l.y} x2={l.x2} y2={l.y} stroke={l.hue === 'blue' ? palette.neonBlue : palette.neonOrange} strokeOpacity="0.8" strokeWidth={2} />
         </g>
       ))}
 

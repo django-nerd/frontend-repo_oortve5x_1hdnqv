@@ -1,6 +1,7 @@
 import React from 'react'
 import Gallery from './components/Gallery'
 import FuturisticScene from './components/FuturisticScene'
+import Sections from './components/Sections'
 
 function App() {
   return (
@@ -30,6 +31,12 @@ function App() {
           <div className="rounded-2xl overflow-hidden ring-1 ring-white/10 bg-slate-900/50">
             <FuturisticScene seed={201} />
           </div>
+        </section>
+
+        {/* Full pack mapped to website sections */}
+        <section>
+          <h2 className="text-2xl font-semibold mb-6 text-blue-200">Full website image set</h2>
+          <Sections />
         </section>
 
         {/* Service section grid */}
